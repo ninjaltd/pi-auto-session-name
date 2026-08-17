@@ -4,9 +4,12 @@
  * Automatically generates a short working title for the session
  * based on a summary of the conversation. Triggers after the first
  * assistant response (after the first turn completes).
+ *
+ * The naming request is dispatched through the session's ModelRegistry,
+ * so any provider works — including providers registered at runtime by
+ * extensions (e.g. pi-ollama's `ollama-native`).
  */
 
-import { complete, getModel } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 type ContentBlock = {
@@ -35,7 +38,7 @@ const extractTextFromContent = (content: unknown): string => {
 };
 
 const buildSummaryPrompt = (conversation: string): string =>
-	`You are naming a conversation session. Based on the conversation below, produce a single short title (max 60 characters, no quotes). Be specific — mention the main task, file, or topic. Use sentence case.
+	`You are naming a conversation session. Based on the conversation below, produce a single short title (max 60 characters, no quotes). Be specific — mention the main task, file, or topic. Use sentence case. Reply with the title only.
 
 <conversation>
 ${conversation}
@@ -66,15 +69,12 @@ export default function (pi: ExtensionAPI) {
 		const model = ctx.model;
 		if (!model) return;
 
-		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
-		if (!auth.ok || !auth.apiKey) return;
-
-		const prompt = buildSummaryPrompt(messages);
-
-		const response = await complete(
+		// Dispatch through the session's registry so the request goes through
+		// the same provider wiring as the agent loop itself (works for
+		// extension-registered providers, e.g. ollama-native)
+		const response = await ctx.modelRegistry.complete(
 			model,
-			{ messages: [{ role: "user" as const, content: [{ type: "text" as const, text: prompt }] }] },
-			{ apiKey: auth.apiKey, headers: auth.headers },
+			{ messages: [{ role: "user" as const, content: [{ type: "text" as const, text: buildSummaryPrompt(messages) }] }] },
 		);
 
 		const title = response.content
